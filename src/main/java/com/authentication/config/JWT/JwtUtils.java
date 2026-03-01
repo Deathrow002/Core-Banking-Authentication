@@ -1,7 +1,8 @@
 package com.authentication.config.JWT;
 
-import java.security.Key;
 import java.util.Date;
+
+import javax.crypto.SecretKey;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,6 @@ import com.authentication.models.UserAuth;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -34,27 +34,27 @@ public class JwtUtils {
             role = "ROLE_" + role;
         }
         return Jwts.builder()
-                .setSubject(userPrincipal.getUsername())
+                .subject(userPrincipal.getUsername())
                 .claim("customerId", userPrincipal.getCustomerId() != null ? userPrincipal.getCustomerId().toString() : null)
                 .claim("role", role)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date((new Date()).getTime() + jwtConfig.getExpiration()))
-                .signWith(key(), SignatureAlgorithm.HS512) // Use the consistent key() method
+                .issuedAt(new Date())
+                .expiration(new Date((new Date()).getTime() + jwtConfig.getExpiration()))
+                .signWith(key())
                 .compact();
     }
 
-    private Key key() {
+    private SecretKey key() {
         return Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtConfig.getSecretKey()));
     }
 
     public String getUserNameFromJwtToken(String token) {
-        return Jwts.parserBuilder().setSigningKey(key()).build()
-                .parseClaimsJws(token).getBody().getSubject();
+        return Jwts.parser().verifyWith(key()).build()
+                .parseSignedClaims(token).getPayload().getSubject();
     }
 
     public boolean validateJwtToken(String authToken) {
         try {
-            Jwts.parserBuilder().setSigningKey(key()).build().parse(authToken);
+            Jwts.parser().verifyWith(key()).build().parseSignedClaims(authToken);
             return true;
         } catch (MalformedJwtException e) {
             logger.error("Invalid JWT token: {}", e.getMessage());
