@@ -25,26 +25,6 @@ Authentication microservice for the Core Banking system. Handles user registrati
 | POST | `/api/v1/auth/register` | Register new user | Yes (Bearer token) |
 | GET | `/api/v1/auth/getAllUsers` | List all users | ADMIN only |
 
-## Request Examples
-
-### Login
-```bash
-POST /api/v1/auth/login?email=user@example.com&password=mypassword
-```
-
-### Register
-```bash
-POST /api/v1/auth/register
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
-
-{
-  "email": "newuser@example.com",
-  "password": "password123",
-  "role": "USER"
-}
-```
-
 ## Configuration
 
 Default port: `8080`
