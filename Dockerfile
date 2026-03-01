@@ -1,19 +1,18 @@
 # Build Stage
 FROM maven:3.9.9-eclipse-temurin-21 AS builder
 
+RUN apt-get update && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git && \
+	apt-get clean && \
+	rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy the parent POM and install it
-COPY ./pom.xml /app/
-
-# Install all dependencies (including Authentication)
-RUN mvn clean install -N
-
-# Copy the entire Authentication module (including pom.xml and src/)
-COPY ./Authentication /app/Authentication
+# Clone the Authentication service from GitHub
+RUN git clone https://github.com/Deathrow002/Core-Banking-Authentication.git .
 
 # Build the Authentication service
-RUN mvn clean package -DskipTests -f Authentication/pom.xml
+RUN mvn clean package -DskipTests
 
 # Runtime Stage
 FROM eclipse-temurin:21-jre-jammy
@@ -27,7 +26,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy the built JAR from the builder stage
-COPY --from=builder /app/Authentication/target/Authentication-1.0-SNAPSHOT.jar authentication-service.jar
+COPY --from=builder /app/target/*.jar authentication-service.jar
 
 EXPOSE 8084
 
