@@ -9,7 +9,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Clone the Authentication service from GitHub
-RUN git clone https://github.com/Deathrow002/Core-Banking-Authentication.git .
+RUN git clone --branch main --single-branch https://github.com/Deathrow002/Core-Banking-Authentication.git .
 
 # Build the Authentication service
 RUN mvn clean package -DskipTests
@@ -20,6 +20,7 @@ FROM eclipse-temurin:21-jre-jammy
 # Install wget and curl
 RUN apt-get update && \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wget curl && \
+	apt-get upgrade -y && \
 	apt-get clean && \
 	rm -rf /var/lib/apt/lists/*
 
