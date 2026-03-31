@@ -6,6 +6,7 @@ import javax.crypto.SecretKey;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,7 @@ public class JwtUtils {
     private static final Logger logger = LoggerFactory.getLogger(JwtUtils.class);
 
     private final JwtConfig jwtConfig;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public String generateJwtToken(Authentication authentication) {
         UserAuth userPrincipal = (UserAuth) authentication.getPrincipal();
@@ -55,6 +57,17 @@ public class JwtUtils {
     public boolean validateJwtToken(String authToken) {
         try {
             Jwts.parser().verifyWith(key()).build().parseSignedClaims(authToken);
+            
+            // Validate against Redis cache to ensure the token hasn't been logged out
+            String username = getUserNameFromJwtToken(authToken);
+            String redisKey = "auth:token:" + username;
+            Object tokenInRedis = redisTemplate.opsForValue().get(redisKey);
+            
+            if (tokenInRedis == null || !tokenInRedis.equals(authToken)) {
+                logger.error("JWT token is revoked or missing in Redis.");
+                return false;
+            }
+            
             return true;
         } catch (MalformedJwtException e) {
             logger.error("Invalid JWT token: {}", e.getMessage());
