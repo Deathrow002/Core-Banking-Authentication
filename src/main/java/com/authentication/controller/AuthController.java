@@ -21,7 +21,6 @@ import com.authentication.service.UserRegisService;
 
 import lombok.RequiredArgsConstructor;
 
-
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -31,7 +30,6 @@ public class AuthController {
     private final UserRegisService userRegisService;
     private final UserAuthService userAuthService;
     private final AuthenticationLogic authenticationLogic;
-
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestParam String email, @RequestParam String password) {
@@ -45,7 +43,8 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody UserRegisPayload user, @RequestHeader("Authorization") String authorizationHeader) {
+    public ResponseEntity<?> register(@RequestBody UserRegisPayload user,
+            @RequestHeader("Authorization") String authorizationHeader) {
         try {
             // Check if the authorization header is present and starts with "Bearer "
             String jwtToken = authorizationHeader.replace("Bearer ", "");
@@ -72,5 +71,22 @@ public class AuthController {
             return ResponseEntity.status(500).body("Internal Server Error");
         }
     }
-    
+
+    public ResponseEntity<?> SignOut(@RequestHeader("Authorization") String authorizationHeader) {
+        try {
+            // Check if the authorization header is present and starts with "Bearer "
+            String jwtToken = authorizationHeader.replace("Bearer ", "");
+            log.info("Received JWT Token: {}", jwtToken);
+
+            // Use signOut from UserAuthService
+            authenticationLogic.SignOut(jwtToken);
+            log.info("User signed out successfully");
+
+            return ResponseEntity.ok().body("User signed out successfully");
+        } catch (Exception e) {
+            log.error("Error signing out: {}", e.getMessage());
+            return ResponseEntity.status(500).body("Internal Server Error");
+        }
+    }
+
 }
