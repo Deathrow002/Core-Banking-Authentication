@@ -8,14 +8,10 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-ARG GITHUB_TOKEN
+COPY pom.xml /app/pom.xml
+RUN mvn install -N -DskipTests
 
-# Install the parent POM so the cloned module can resolve com:core-bank:1.0-SNAPSHOT
-RUN curl -fsSL https://raw.githubusercontent.com/Deathrow002/Core-Banking/master/pom.xml -o /app/pom.xml
-RUN mvn clean install -N
-
-# Clone the Authentication service from GitHub
-RUN git clone --branch main --single-branch https://${GITHUB_TOKEN}@github.com/Deathrow002/Core-Banking-Authentication.git Authentication
+COPY Authentication /app/Authentication
 
 # Build the Authentication service (parent POM is now in local Maven repo)
 RUN mkdir -p Authentication/src/main/avro Authentication/src/test/avro

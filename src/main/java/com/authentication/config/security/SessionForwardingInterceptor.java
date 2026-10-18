@@ -5,6 +5,9 @@ import java.util.List;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
+import org.springframework.http.client.support.HttpRequestWrapper;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -29,6 +32,24 @@ public class SessionForwardingInterceptor implements ClientHttpRequestIntercepto
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         if (attributes instanceof ServletRequestAttributes servletAttributes) {
             HttpServletRequest inbound = servletAttributes.getRequest();
+            if (inbound.getRequestURI().startsWith("/api/mobile/")
+                    && SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken jwt) {
+                String path = request.getURI().getRawPath();
+                String mobilePath = path.startsWith("/api/mobile/") ? path : "/api/mobile" + path;
+                String query = request.getURI().getRawQuery();
+                var target = java.net.URI.create(request.getURI().getScheme() + "://"
+                        + request.getURI().getRawAuthority() + mobilePath + (query == null ? "" : "?" + query));
+                HttpRequest forwarded = new HttpRequestWrapper(request) {
+                    @Override
+                    public java.net.URI getURI() {
+                        return target;
+                    }
+                };
+                forwarded.getHeaders().remove(HttpHeaders.COOKIE);
+                forwarded.getHeaders().remove(CSRF_HEADER);
+                forwarded.getHeaders().setBearerAuth(jwt.getToken().getTokenValue());
+                return execution.execute(forwarded, body);
+            }
             for (String name : FORWARDED_HEADERS) {
                 String value = inbound.getHeader(name);
                 if (value != null && !request.getHeaders().containsHeader(name)) {

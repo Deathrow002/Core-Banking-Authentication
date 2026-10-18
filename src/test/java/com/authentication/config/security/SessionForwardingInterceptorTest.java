@@ -21,6 +21,7 @@ class SessionForwardingInterceptorTest {
     @AfterEach
     void reset() {
         RequestContextHolder.resetRequestAttributes();
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     private MockClientHttpRequest execute() throws Exception {
@@ -48,5 +49,28 @@ class SessionForwardingInterceptorTest {
         MockClientHttpRequest outbound = execute();
 
         assertThat(outbound.getHeaders().containsHeader(HttpHeaders.COOKIE)).isFalse();
+    }
+
+    @Test
+    void mobileRegistrationForwardsOnlyValidatedBearerAndPrefixesDownstreamPath() throws Exception {
+        var inbound = new MockHttpServletRequest("POST", "/api/mobile/api/v1/auth/register");
+        inbound.addHeader(HttpHeaders.COOKIE, "SESSION=browser");
+        inbound.addHeader("X-XSRF-TOKEN", "browser-csrf");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(inbound));
+        var jwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue("validated-test-token")
+                .header("alg", "RS256").subject("user@example.com").build();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(jwt));
+        var outbound = new MockClientHttpRequest(HttpMethod.GET,
+                URI.create("http://CUSTOMER-SERVICE/customers/validateById?customerId=a%2Bb"));
+        interceptor.intercept(outbound, new byte[0], (request, body) -> {
+            assertThat(request.getURI().toString())
+                    .isEqualTo("http://CUSTOMER-SERVICE/api/mobile/customers/validateById?customerId=a%2Bb");
+            assertThat(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
+                    .isEqualTo("Bearer validated-test-token");
+            assertThat(request.getHeaders().containsHeader(HttpHeaders.COOKIE)).isFalse();
+            assertThat(request.getHeaders().containsHeader("X-XSRF-TOKEN")).isFalse();
+            return new MockClientHttpResponse();
+        });
     }
 }

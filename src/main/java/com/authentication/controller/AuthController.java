@@ -12,7 +12,6 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,7 +30,6 @@ import lombok.RequiredArgsConstructor;
  * Spring Security filter chain, see {@link com.authentication.config.WebSecurityConfig}.
  */
 @RestController
-@RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -41,14 +39,14 @@ public class AuthController {
     private final SessionAuthService sessionAuthService;
 
     /** Issues the XSRF-TOKEN cookie; call once before the first state-changing request (e.g. login). */
-    @GetMapping("/csrf")
+    @GetMapping("/api/v1/auth/csrf")
     public ResponseEntity<Void> csrf(CsrfToken csrfToken) {
         // Reading the token forces Spring Security to write the deferred XSRF-TOKEN cookie.
         csrfToken.getToken();
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/login")
+    @PostMapping("/api/v1/auth/login")
     public ResponseEntity<?> login(@RequestParam String email, @RequestParam String password,
             HttpServletRequest request, HttpServletResponse response) {
         try {
@@ -59,12 +57,12 @@ public class AuthController {
         }
     }
 
-    @GetMapping("/me")
+    @GetMapping({"/api/v1/auth/me", "/api/mobile/api/v1/auth/me"})
     public ResponseEntity<SessionUserResponse> me(Authentication authentication) {
         return ResponseEntity.ok(sessionAuthService.toResponse(authentication));
     }
 
-    @PostMapping("/register")
+    @PostMapping({"/api/v1/auth/register", "/api/mobile/api/v1/auth/register"})
     public ResponseEntity<?> register(@RequestBody UserRegisPayload user) {
         try {
             UserDetails registeredUser = userRegisService.registerUser(user);
@@ -77,7 +75,7 @@ public class AuthController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/getAllUsers")
+    @GetMapping({"/api/v1/auth/getAllUsers", "/api/mobile/api/v1/auth/getAllUsers"})
     public ResponseEntity<?> getAllUsers() {
         try {
             return ResponseEntity.ok(userAuthService.loadAllUsers());

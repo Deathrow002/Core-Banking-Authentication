@@ -3,6 +3,7 @@ package com.authentication.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -43,11 +44,13 @@ public class WebSecurityConfig {
     private final SecurityContextRepository securityContextRepository;
 
     @Bean
+    @Order(4)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
             // Session cookies are sent automatically by browsers, so CSRF protection is required.
             // spa() = XSRF-TOKEN cookie readable by the SPA, echoed back in the X-XSRF-TOKEN header.
             .csrf(csrf -> csrf.spa())
+            .requestCache(cache -> cache.requestCache(new org.springframework.security.web.savedrequest.NullRequestCache()))
             .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .securityContext(context -> context.securityContextRepository(securityContextRepository))
