@@ -2,25 +2,34 @@ package com.authentication.controller;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.authentication.models.request.UserRegisPayload;
-import com.authentication.models.response.JwtResponse;
-import com.authentication.service.AuthenticationLogic;
+import com.authentication.models.response.SessionUserResponse;
+import com.authentication.service.SessionAuthService;
 import com.authentication.service.UserAuthService;
 import com.authentication.service.UserRegisService;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * Session-based authentication API. Logout ({@code POST /api/v1/auth/logout}) is handled by the
+ * Spring Security filter chain, see {@link com.authentication.config.WebSecurityConfig}.
+ */
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -29,31 +38,37 @@ public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private final UserRegisService userRegisService;
     private final UserAuthService userAuthService;
-    private final AuthenticationLogic authenticationLogic;
+    private final SessionAuthService sessionAuthService;
+
+    /** Issues the XSRF-TOKEN cookie; call once before the first state-changing request (e.g. login). */
+    @GetMapping("/csrf")
+    public ResponseEntity<Void> csrf(CsrfToken csrfToken) {
+        // Reading the token forces Spring Security to write the deferred XSRF-TOKEN cookie.
+        csrfToken.getToken();
+        return ResponseEntity.noContent().build();
+    }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestParam String email, @RequestParam String password) {
+    public ResponseEntity<?> login(@RequestParam String email, @RequestParam String password,
+            HttpServletRequest request, HttpServletResponse response) {
         try {
-            // Use authenticateUser from UserAuthService
-            JwtResponse jwtResponse = authenticationLogic.authenticateUser(email, password);
-            return ResponseEntity.ok(jwtResponse);
-        } catch (org.springframework.security.core.AuthenticationException e) {
+            return ResponseEntity.ok(sessionAuthService.login(email, password, request, response));
+        } catch (AuthenticationException e) {
+            log.warn("Login failed for {}: {}", email, e.getMessage());
             return ResponseEntity.badRequest().body("Invalid email or password");
         }
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<SessionUserResponse> me(Authentication authentication) {
+        return ResponseEntity.ok(sessionAuthService.toResponse(authentication));
+    }
+
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody UserRegisPayload user,
-            @RequestHeader("Authorization") String authorizationHeader) {
+    public ResponseEntity<?> register(@RequestBody UserRegisPayload user) {
         try {
-            // Check if the authorization header is present and starts with "Bearer "
-            String jwtToken = authorizationHeader.replace("Bearer ", "");
-            log.info("Received JWT Token: {}", jwtToken);
-
-            // Use registerUser from UserRegisService
-            UserDetails registeredUser = userRegisService.registerUser(user, jwtToken);
+            UserDetails registeredUser = userRegisService.registerUser(user);
             log.info("User registered successfully: {}", registeredUser.getUsername());
-
             return ResponseEntity.ok().body(registeredUser);
         } catch (RuntimeException e) {
             log.error("Registration failed: {}", e.getMessage());
@@ -68,25 +83,7 @@ public class AuthController {
             return ResponseEntity.ok(userAuthService.loadAllUsers());
         } catch (Exception e) {
             log.error("Error fetching users: {}", e.getMessage());
-            return ResponseEntity.status(500).body("Internal Server Error");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Internal Server Error");
         }
     }
-
-    public ResponseEntity<?> SignOut(@RequestHeader("Authorization") String authorizationHeader) {
-        try {
-            // Check if the authorization header is present and starts with "Bearer "
-            String jwtToken = authorizationHeader.replace("Bearer ", "");
-            log.info("Received JWT Token: {}", jwtToken);
-
-            // Use signOut from UserAuthService
-            authenticationLogic.SignOut(jwtToken);
-            log.info("User signed out successfully");
-
-            return ResponseEntity.ok().body("User signed out successfully");
-        } catch (Exception e) {
-            log.error("Error signing out: {}", e.getMessage());
-            return ResponseEntity.status(500).body("Internal Server Error");
-        }
-    }
-
 }

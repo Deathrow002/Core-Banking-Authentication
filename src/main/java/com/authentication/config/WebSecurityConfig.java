@@ -3,6 +3,8 @@ package com.authentication.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -10,15 +12,15 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.context.SecurityContextRepository;
 
-import com.authentication.config.JWT.AuthEntryPointJwt;
-import com.authentication.config.JWT.AuthTokenFilter;
+import com.authentication.config.security.RestAuthenticationEntryPoint;
+import com.authentication.config.security.SessionConfig;
 import com.authentication.service.UserAuthService;
 
 import lombok.RequiredArgsConstructor;
@@ -29,30 +31,42 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class WebSecurityConfig {
 
+    public static final String LOGIN_URL = "/api/v1/auth/login";
+    public static final String LOGOUT_URL = "/api/v1/auth/logout";
+    public static final String CSRF_URL = "/api/v1/auth/csrf";
+
     @Lazy
     private final UserAuthService userAuthService;
 
-    private final AuthEntryPointJwt unauthorizedHandler;
+    private final RestAuthenticationEntryPoint unauthorizedHandler;
 
-    private final AuthTokenFilter authTokenFilter;
+    private final SecurityContextRepository securityContextRepository;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        return http.csrf(AbstractHttpConfigurer::disable)
-            .exceptionHandling(exception -> 
-                exception.authenticationEntryPoint(unauthorizedHandler)
-            )
-            .sessionManagement(session -> 
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
+        return http
+            // Session cookies are sent automatically by browsers, so CSRF protection is required.
+            // spa() = XSRF-TOKEN cookie readable by the SPA, echoed back in the X-XSRF-TOKEN header.
+            .csrf(csrf -> csrf.spa())
+            .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+            .securityContext(context -> context.securityContextRepository(securityContextRepository))
             .authorizeHttpRequests(auth -> auth
-                // .requestMatchers("/api/v1/auth/getAllUsers").hasRole("ADMIN") // More specific rule first
-                .requestMatchers("/api/v1/auth/login", "/api/v1/auth/register").permitAll() // Allow public access to login and register
-                .requestMatchers("/actuator/health", "/actuator/prometheus", "/actuator/info").permitAll() // Allow public access to actuator endpoints
+                .requestMatchers(HttpMethod.POST, LOGIN_URL).permitAll()
+                .requestMatchers(HttpMethod.GET, CSRF_URL).permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus", "/actuator/info").permitAll()
                 .anyRequest().authenticated()
             )
+            .logout(logout -> logout
+                .logoutUrl(LOGOUT_URL)
+                .invalidateHttpSession(true)
+                .clearAuthentication(true)
+                .deleteCookies(SessionConfig.SESSION_COOKIE_NAME)
+                .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT))
+            )
+            .formLogin(form -> form.disable())
+            .httpBasic(basic -> basic.disable())
             .authenticationProvider(authenticationProvider())
-            .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class)
             .build();
     }
 

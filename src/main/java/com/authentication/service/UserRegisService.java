@@ -3,9 +3,6 @@ package com.authentication.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -45,7 +42,7 @@ public class UserRegisService implements UserDetailsService{
     }
 
     @CircuitBreaker(name = "customerService", fallbackMethod = "customerServiceFallback")
-    public UserDetails registerUser(UserRegisPayload user, String jwtToken) {
+    public UserDetails registerUser(UserRegisPayload user) {
         try {
             UserAuth userAuth = new UserAuth();
 
@@ -62,16 +59,8 @@ public class UserRegisService implements UserDetailsService{
                 .queryParam("email", user.getEmail())
                 .toUriString();
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "Bearer " + jwtToken);
-            HttpEntity<Void> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Boolean> response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                entity,
-                Boolean.class
-            );
+            // The caller's SESSION cookie is forwarded by SessionForwardingInterceptor.
+            ResponseEntity<Boolean> response = restTemplate.getForEntity(url, Boolean.class);
 
             Boolean customerExists = response.getBody();
             if (customerExists == null || !customerExists) {
@@ -99,8 +88,8 @@ public class UserRegisService implements UserDetailsService{
         }
     }
 
-    public Boolean customerServiceFallback(UserRegisPayload user, String jwtToken, Throwable t) {
+    public UserDetails customerServiceFallback(UserRegisPayload user, Throwable t) {
         log.error("Fallback triggered for registerUser: Customer service unavailable. customerId={}, error={}", user.getCustomerId(), t.getMessage());
-        return false;
+        throw new RuntimeException("Customer service unavailable, please try again later");
     }
 }
