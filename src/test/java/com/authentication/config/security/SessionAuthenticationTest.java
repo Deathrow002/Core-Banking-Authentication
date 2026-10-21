@@ -14,24 +14,25 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextImpl;
 
 import com.authentication.models.Role;
+import com.authentication.models.RoleNames;
 import com.authentication.models.UserAuth;
 
 class SessionAuthenticationTest {
 
     private final UUID customerId = UUID.randomUUID();
 
-    private UserAuth user(Role role) {
+    private UserAuth user(String roleName) {
         return UserAuth.builder()
                 .email("jane@bank.com")
                 .password("{bcrypt}hash")
                 .customerId(customerId)
-                .role(role)
+                .role(new Role(roleName))
                 .build();
     }
 
     @Test
     void buildsPortableAuthenticationFromUser() {
-        Authentication authentication = SessionAuthentication.from(user(Role.MANAGER));
+        Authentication authentication = SessionAuthentication.from(user(RoleNames.MANAGER));
 
         assertThat(authentication.isAuthenticated()).isTrue();
         assertThat(authentication.getPrincipal()).isEqualTo("jane@bank.com");
@@ -45,8 +46,23 @@ class SessionAuthenticationTest {
     }
 
     @Test
+    void addsRolePermissionsAsAuthorities() {
+        UserAuth admin = user(RoleNames.ADMIN);
+        admin.setRole(new Role(RoleNames.ADMIN, true, true, true));
+
+        assertThat(SessionAuthentication.from(admin).getAuthorities()).extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_ADMIN", "PERM_ADD", "PERM_EDIT", "PERM_DELETE");
+
+        admin.setRole(new Role(RoleNames.MANAGER, true, false, false));
+        assertThat(SessionAuthentication.from(admin).getAuthorities()).extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_MANAGER", "PERM_ADD");
+    }
+
+    @Test
     void sessionPayloadContainsNoServiceSpecificClassesOrSecrets() {
-        SecurityContext context = new SecurityContextImpl(SessionAuthentication.from(user(Role.USER)));
+        UserAuth admin = user(RoleNames.ADMIN);
+        admin.setRole(new Role(RoleNames.ADMIN, true, true, true));
+        SecurityContext context = new SecurityContextImpl(SessionAuthentication.from(admin));
         JdkSerializationRedisSerializer serializer = new JdkSerializationRedisSerializer();
 
         byte[] bytes = serializer.serialize(context);
@@ -61,12 +77,12 @@ class SessionAuthenticationTest {
         assertThat(SessionAuthentication.detail(restored.getAuthentication(), SessionAuthentication.DETAIL_CUSTOMER_ID))
                 .isEqualTo(customerId.toString());
         assertThat(restored.getAuthentication().getAuthorities()).extracting(GrantedAuthority::getAuthority)
-                .containsExactly("ROLE_USER");
+                .containsExactly("ROLE_ADMIN", "PERM_ADD", "PERM_EDIT", "PERM_DELETE");
     }
 
     @Test
     void handlesUserWithoutCustomerId() {
-        UserAuth admin = user(Role.ADMIN);
+        UserAuth admin = user(RoleNames.ADMIN);
         admin.setCustomerId(null);
 
         Authentication authentication = SessionAuthentication.from(admin);

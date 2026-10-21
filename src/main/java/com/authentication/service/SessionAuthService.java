@@ -1,5 +1,7 @@
 package com.authentication.service;
 
+import java.util.List;
+
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -11,6 +13,7 @@ import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Service;
 
 import com.authentication.config.security.SessionAuthentication;
+import com.authentication.models.Permissions;
 import com.authentication.models.UserAuth;
 import com.authentication.models.response.SessionUserResponse;
 
@@ -52,9 +55,11 @@ public class SessionAuthService {
     }
 
     public SessionUserResponse toResponse(Authentication authentication) {
+        List<String> authorities = authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
         return new SessionUserResponse(
                 authentication.getName(),
                 SessionAuthentication.detail(authentication, SessionAuthentication.DETAIL_CUSTOMER_ID),
-                authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList());
+                authorities.stream().filter(authority -> !authority.startsWith(Permissions.PREFIX)).toList(),
+                authorities.stream().filter(authority -> authority.startsWith(Permissions.PREFIX)).toList());
     }
 }

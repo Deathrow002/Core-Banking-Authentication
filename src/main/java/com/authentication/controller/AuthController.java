@@ -15,7 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.authentication.models.UserAuth;
 import com.authentication.models.request.UserRegisPayload;
+import com.authentication.models.response.RegisteredUserResponse;
 import com.authentication.models.response.SessionUserResponse;
 import com.authentication.service.SessionAuthService;
 import com.authentication.service.UserAuthService;
@@ -23,6 +25,7 @@ import com.authentication.service.UserRegisService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -62,12 +65,15 @@ public class AuthController {
         return ResponseEntity.ok(sessionAuthService.toResponse(authentication));
     }
 
+    /** Staff with the add permission: creates a login for an existing customer. Customer validation reuses the caller's session. */
+    @PreAuthorize("(hasRole('ADMIN') or hasRole('MANAGER')) and hasAuthority('PERM_ADD')")
     @PostMapping({"/api/v1/auth/register", "/api/mobile/api/v1/auth/register"})
-    public ResponseEntity<?> register(@RequestBody UserRegisPayload user) {
+    public ResponseEntity<?> register(@Valid @RequestBody UserRegisPayload user) {
         try {
-            UserDetails registeredUser = userRegisService.registerUser(user);
+            UserAuth registeredUser = userRegisService.registerUser(user);
             log.info("User registered successfully: {}", registeredUser.getUsername());
-            return ResponseEntity.ok().body(registeredUser);
+            return ResponseEntity.ok(new RegisteredUserResponse(
+                    registeredUser.getEmail(), registeredUser.getCustomerId(), registeredUser.getRoleName()));
         } catch (RuntimeException e) {
             log.error("Registration failed: {}", e.getMessage());
             return ResponseEntity.badRequest().body(e.getMessage());

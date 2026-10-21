@@ -201,7 +201,8 @@ public class AuthorizationServerConfig {
                 throw new OAuth2AuthenticationException(new OAuth2Error("access_denied"));
             }
             context.getClaims().subject(user.getUsername());
-            context.getClaims().claim("role", "ROLE_" + user.getRole().name());
+            context.getClaims().claim("role", "ROLE_" + user.getRoleName());
+            context.getClaims().claim("permissions", user.getRole().permissionAuthorities());
             if (user.getCustomerId() != null) {
                 context.getClaims().claim("customerId", user.getCustomerId().toString());
             }

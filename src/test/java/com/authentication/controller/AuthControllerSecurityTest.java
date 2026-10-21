@@ -31,10 +31,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
+import com.authentication.TestRoles;
 import com.authentication.config.WebSecurityConfig;
 import com.authentication.config.security.RestAuthenticationEntryPoint;
 import com.authentication.config.security.SessionAuthentication;
 import com.authentication.models.Role;
+import com.authentication.models.RoleNames;
 import com.authentication.models.UserAuth;
 import com.authentication.models.response.SessionUserResponse;
 import com.authentication.service.SessionAuthService;
@@ -59,16 +61,17 @@ class AuthControllerSecurityTest {
 
     @Autowired WebApplicationContext context;
     @Autowired SessionAuthService sessionAuthService;
+    @Autowired UserRegisService userRegisService;
     MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        org.mockito.Mockito.reset(sessionAuthService);
+        org.mockito.Mockito.reset(sessionAuthService, userRegisService);
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
     }
 
-    private static UserAuth user(Role role) {
-        return UserAuth.builder().email("jane@bank.com").password("x").customerId(UUID.randomUUID()).role(role).build();
+    private static UserAuth user(String roleName) {
+        return UserAuth.builder().email("jane@bank.com").password("x").customerId(UUID.randomUUID()).role(TestRoles.seeded(roleName)).build();
     }
 
     @Test
@@ -88,12 +91,13 @@ class AuthControllerSecurityTest {
     @Test
     void loginWithCsrfReturnsUserWithoutToken() throws Exception {
         when(sessionAuthService.login(eq("jane@bank.com"), eq("secret"), any(), any()))
-                .thenReturn(new SessionUserResponse("jane@bank.com", "c-1", List.of("ROLE_USER")));
+                .thenReturn(new SessionUserResponse("jane@bank.com", "c-1", List.of("ROLE_CUSTOMER"), List.of()));
 
         mvc.perform(post("/api/v1/auth/login").with(csrf()).param("email", "jane@bank.com").param("password", "secret"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("jane@bank.com"))
-                .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_CUSTOMER"))
+                .andExpect(jsonPath("$.permissions").isEmpty())
                 .andExpect(jsonPath("$.token").doesNotExist());
     }
 
@@ -112,9 +116,9 @@ class AuthControllerSecurityTest {
 
     @Test
     void meReturnsCurrentUser() throws Exception {
-        var auth = SessionAuthentication.from(user(Role.USER));
+        var auth = SessionAuthentication.from(user(RoleNames.CUSTOMER));
         when(sessionAuthService.toResponse(any()))
-                .thenReturn(new SessionUserResponse("jane@bank.com", "c-1", List.of("ROLE_USER")));
+                .thenReturn(new SessionUserResponse("jane@bank.com", "c-1", List.of("ROLE_CUSTOMER"), List.of()));
 
         mvc.perform(get("/api/v1/auth/me").with(authentication(auth)))
                 .andExpect(status().isOk())
@@ -123,9 +127,9 @@ class AuthControllerSecurityTest {
 
     @Test
     void getAllUsersRequiresAdmin() throws Exception {
-        mvc.perform(get("/api/v1/auth/getAllUsers").with(authentication(SessionAuthentication.from(user(Role.USER)))))
+        mvc.perform(get("/api/v1/auth/getAllUsers").with(authentication(SessionAuthentication.from(user(RoleNames.CUSTOMER)))))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/auth/getAllUsers").with(authentication(SessionAuthentication.from(user(Role.ADMIN)))))
+        mvc.perform(get("/api/v1/auth/getAllUsers").with(authentication(SessionAuthentication.from(user(RoleNames.ADMIN)))))
                 .andExpect(status().isOk());
     }
 
@@ -136,8 +140,60 @@ class AuthControllerSecurityTest {
     }
 
     @Test
+    void registerIsForbiddenForUserRole() throws Exception {
+        mvc.perform(post("/api/v1/auth/register").with(csrf())
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.CUSTOMER))))
+                        .contentType("application/json").content(validRegisterJson()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void registerIsForbiddenForStaffWithoutAddPermission() throws Exception {
+        UserAuth manager = user(RoleNames.MANAGER);
+        manager.setRole(new Role(RoleNames.MANAGER, false, true, true));
+
+        mvc.perform(post("/api/v1/auth/register").with(csrf())
+                        .with(authentication(SessionAuthentication.from(manager)))
+                        .contentType("application/json").content(validRegisterJson()))
+                .andExpect(status().isForbidden());
+
+        org.mockito.Mockito.verifyNoInteractions(userRegisService);
+    }
+
+    @Test
+    void registerByManagerReturnsCreatedLoginWithoutPasswordHash() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        when(userRegisService.registerUser(any())).thenReturn(UserAuth.builder()
+                .email("new@bank.com").password("$2a$10$hash").customerId(customerId).role(new Role(RoleNames.CUSTOMER)).build());
+
+        mvc.perform(post("/api/v1/auth/register").with(csrf())
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.MANAGER))))
+                        .contentType("application/json").content(validRegisterJson()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("new@bank.com"))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.role").value("CUSTOMER"))
+                .andExpect(jsonPath("$.password").doesNotExist());
+    }
+
+    @Test
+    void registerRejectsInvalidPayloadBeforeCallingService() throws Exception {
+        mvc.perform(post("/api/v1/auth/register").with(csrf())
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.ADMIN))))
+                        .contentType("application/json")
+                        .content("{\"customerId\":\"" + UUID.randomUUID() + "\",\"email\":\"not-an-email\",\"password\":\"short\"}"))
+                .andExpect(status().isBadRequest());
+
+        org.mockito.Mockito.verifyNoInteractions(userRegisService);
+    }
+
+    private static String validRegisterJson() {
+        return "{\"customerId\":\"" + UUID.randomUUID() + "\",\"email\":\"new@bank.com\",\"password\":\"longenough\"}";
+    }
+
+    @Test
     void logoutInvalidatesSessionAndRequiresCsrf() throws Exception {
-        var auth = authentication(SessionAuthentication.from(user(Role.USER)));
+        var auth = authentication(SessionAuthentication.from(user(RoleNames.CUSTOMER)));
 
         mvc.perform(post("/api/v1/auth/logout").with(auth)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/auth/logout").with(auth).with(csrf()))

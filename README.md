@@ -22,7 +22,7 @@ Start authorization at `/oauth2/authorize` with `response_type=code`, `client_id
 
 The authorization flow uses a dedicated `/oauth/login` page, separate from Angular's `/login`. Exchange the returned code at `/oauth2/token` using form fields `grant_type=authorization_code`, `client_id`, `redirect_uri`, `code`, and `code_verifier`. Never put a client secret in the mobile app. Use a maintained native OAuth/OIDC SDK to validate ID tokens and handle redirects; do not implement the protocol manually in the app.
 
-Discovery is available at `/.well-known/openid-configuration` and public signing keys at `/oauth2/jwks`. Access tokens carry `sub` (existing email/username), `customerId`, `role` (`ROLE_ADMIN`, `ROLE_MANAGER`, or `ROLE_USER`), audience and granted scopes.
+Discovery is available at `/.well-known/openid-configuration` and public signing keys at `/oauth2/jwks`. Access tokens carry `sub` (existing email/username), `customerId`, `role` (`ROLE_ADMIN`, `ROLE_MANAGER`, or `ROLE_CUSTOMER`), `permissions` (the role's `PERM_ADD` / `PERM_EDIT` / `PERM_DELETE`), audience and granted scopes.
 
 Public PKCE clients do **not** receive refresh tokens in this implementation. Reauthorize through the system browser when the access token expires. An existing browser authorization session can avoid another password prompt. Do not add a static mobile client secret to work around this restriction.
 
@@ -58,7 +58,8 @@ The gateway forwards the original host (including its port) through `X-Forwarded
 - HttpOnly `SESSION` cookie (no tokens are exposed to the browser)
 - CSRF protection (Spring Security SPA mode: `XSRF-TOKEN` cookie / `X-XSRF-TOKEN` header)
 - Session fixation protection (session id rotated on login)
-- Role-based access control (ADMIN, MANAGER, USER)
+- Role-based access control (ADMIN, MANAGER, CUSTOMER); roles are rows in the `roles` table, not a Java enum
+- Per-role add / edit / delete permissions (see [Role permissions](#role-permissions))
 - Secure password encoding
 - Admin user management
 
@@ -74,14 +75,33 @@ The gateway forwards the original host (including its port) through `X-Forwarded
 1. `GET /api/v1/auth/csrf` issues the `XSRF-TOKEN` cookie.
 2. `POST /api/v1/auth/login` (form fields `email`, `password`, header `X-XSRF-TOKEN`) authenticates the
    user and stores the security context in Redis under `core-banking:session:sessions:<id>`.
-   The response sets the `SESSION` cookie and returns `{ "username", "customerId", "roles" }`.
+   The response sets the `SESSION` cookie and returns `{ "username", "customerId", "roles", "permissions" }`.
 3. Every other service (Account, Customer, Transaction, Loan) reads the same Redis session using the
    `SESSION` cookie, so the browser just keeps sending its cookies. Write requests must include the
    `X-XSRF-TOKEN` header.
 4. `POST /api/v1/auth/logout` invalidates the session in Redis and clears the cookie.
 
 The stored principal is a plain username string with details `{username, customerId, role}`, so any
-service can deserialize it without depending on this module's classes.
+service can deserialize it without depending on this module's classes. Its authorities are the
+`ROLE_*` authority plus the role's `PERM_*` permissions, so any service can use
+`hasAuthority('PERM_DELETE')` and similar checks.
+
+### Role permissions
+
+Each row in the `roles` table has `can_add`, `can_edit` and `can_delete` flags. They are published as
+the `PERM_ADD`, `PERM_EDIT` and `PERM_DELETE` authorities in the session and in the mobile access
+token's `permissions` claim. `schema.sql` seeds:
+
+| Role | `can_add` | `can_edit` | `can_delete` |
+|------|-----------|------------|--------------|
+| ADMIN | ✓ | ✓ | ✓ |
+| MANAGER | ✓ | ✓ | |
+| CUSTOMER | | | |
+
+On an existing database the columns are added once with these values; later startups do not
+overwrite changes made in the table. Permissions are copied into the session at login, so a user
+must sign in again to pick up a change (sessions created before this feature have no `PERM_*`
+authorities).
 
 OAuth request caching stores only a relative authorization URL, not servlet request/cookie objects, because reactive services deserialize the same session. Sessions created by an intermediate build that cached servlet objects must be replaced by signing out and starting a new session; do not flush unrelated Redis sessions.
 
@@ -93,8 +113,17 @@ OAuth request caching stores only a relative authorization URL, not servlet requ
 | POST | `/api/v1/auth/login` | Log in, create session | No (CSRF required) |
 | GET | `/api/v1/auth/me` | Current session user | Session |
 | POST | `/api/v1/auth/logout` | Invalidate session (204) | Session + CSRF |
-| POST | `/api/v1/auth/register` | Register new user | Session + CSRF |
+| POST | `/api/v1/auth/register` | Create a login for an existing customer; ADMIN or MANAGER with `PERM_ADD`; validates customer and password policy (8–72 chars) | Session (ADMIN/MANAGER + `PERM_ADD`) + CSRF |
 | GET | `/api/v1/auth/getAllUsers` | List all users | ADMIN only |
+| GET | `/api/v1/auth/users?page=0&size=20` | Paged list of login accounts (`content`, `page`, `size`, `totalElements`, `totalPages`); size 1–100 | ADMIN or MANAGER |
+| GET | `/api/v1/auth/users/roles` | Role names from the `roles` table, sorted (e.g. `["ADMIN","CUSTOMER","MANAGER"]`) | ADMIN or MANAGER |
+| GET | `/api/v1/auth/users/{id}` | View one login account | ADMIN or MANAGER |
+| POST | `/api/v1/auth/users` | Create a login for an existing customer; role defaults to CUSTOMER | ADMIN or MANAGER with `PERM_ADD` + CSRF |
+| PUT | `/api/v1/auth/users/{id}` | Update email, password (optional), role, and enabled; `customerId` is immutable | ADMIN or MANAGER with `PERM_EDIT` + CSRF |
+| DELETE | `/api/v1/auth/users/{id}` | Permanently delete a login account (204) | ADMIN or MANAGER with `PERM_DELETE` + CSRF |
+
+Staff without the required permission get `403`. With the seeded permissions, MANAGER cannot delete logins.
+MANAGER cannot view, create, update, delete, or assign the ADMIN role; those requests return `403`. Users cannot delete, disable, or change the role of their own account (`400`), and the last enabled ADMIN cannot be removed or demoted (`400`).
 
 Unauthenticated requests receive `401` JSON; a missing/invalid CSRF token yields `403`.
 

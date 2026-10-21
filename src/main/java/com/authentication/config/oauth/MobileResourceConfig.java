@@ -2,6 +2,7 @@ package com.authentication.config.oauth;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,6 +26,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.savedrequest.NullRequestCache;
+
+import com.authentication.models.Permissions;
 
 @Configuration
 public class MobileResourceConfig {
@@ -63,8 +66,13 @@ public class MobileResourceConfig {
     static JwtAuthenticationToken authentication(Jwt jwt) {
         var authorities = new ArrayList<>(new JwtGrantedAuthoritiesConverter().convert(jwt));
         String role = jwt.getClaimAsString("role");
-        if (role != null && role.matches("ROLE_(ADMIN|MANAGER|USER)")) {
+        if (role != null && role.matches("ROLE_(ADMIN|MANAGER|CUSTOMER)")) {
             authorities.add(new SimpleGrantedAuthority(role));
+        }
+        List<String> permissions = jwt.getClaimAsStringList("permissions");
+        if (permissions != null) {
+            permissions.stream().filter(Permissions.ALL::contains).distinct()
+                    .forEach(permission -> authorities.add(new SimpleGrantedAuthority(permission)));
         }
         var authentication = new JwtAuthenticationToken(jwt, authorities, jwt.getSubject());
         Map<String, Object> details = new HashMap<>();

@@ -20,7 +20,10 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 
+import com.authentication.config.security.SessionAuthentication;
+import com.authentication.models.Permissions;
 import com.authentication.models.Role;
+import com.authentication.models.RoleNames;
 import com.authentication.models.UserAuth;
 import com.authentication.models.response.SessionUserResponse;
 
@@ -39,7 +42,7 @@ class SessionAuthServiceTest {
     void storesPortableSecurityContextInSessionAndRotatesSessionId() {
         UUID customerId = UUID.randomUUID();
         UserAuth user = UserAuth.builder().email("jane@bank.com").password("hash")
-                .customerId(customerId).role(Role.USER).build();
+                .customerId(customerId).role(new Role(RoleNames.CUSTOMER)).build();
         when(authenticationManager.authenticate(any()))
                 .thenReturn(UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities()));
 
@@ -50,12 +53,24 @@ class SessionAuthServiceTest {
 
         SessionUserResponse response = service.login("jane@bank.com", "secret", request, new MockHttpServletResponse());
 
-        assertThat(response).isEqualTo(new SessionUserResponse("jane@bank.com", customerId.toString(), java.util.List.of("ROLE_USER")));
+        assertThat(response).isEqualTo(new SessionUserResponse("jane@bank.com", customerId.toString(),
+                java.util.List.of("ROLE_CUSTOMER"), java.util.List.of()));
         assertThat(request.getSession().getId()).isNotEqualTo(preLoginId);
 
         SecurityContext stored = (SecurityContext) request.getSession()
                 .getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(stored.getAuthentication().getPrincipal()).isEqualTo("jane@bank.com");
+    }
+
+    @Test
+    void responseSeparatesRoleFromPermissions() {
+        UserAuth manager = UserAuth.builder().email("m@bank.com").password("hash")
+                .customerId(UUID.randomUUID()).role(new Role(RoleNames.MANAGER, true, true, false)).build();
+
+        SessionUserResponse response = service.toResponse(SessionAuthentication.from(manager));
+
+        assertThat(response.roles()).containsExactly("ROLE_MANAGER");
+        assertThat(response.permissions()).containsExactly(Permissions.ADD, Permissions.EDIT);
     }
 
     @Test

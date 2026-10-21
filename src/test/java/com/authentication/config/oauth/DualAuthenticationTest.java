@@ -3,6 +3,7 @@ package com.authentication.config.oauth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
@@ -64,6 +65,7 @@ import com.authentication.controller.AuthController;
 import com.authentication.controller.MobileAuthController;
 import com.authentication.controller.OAuthLoginController;
 import com.authentication.models.Role;
+import com.authentication.models.RoleNames;
 import com.authentication.models.UserAuth;
 import com.authentication.service.SessionAuthService;
 import com.authentication.service.UserAuthService;
@@ -82,7 +84,7 @@ class DualAuthenticationTest {
     private static final String VERIFIER = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     private static final UserAuth USER = UserAuth.builder().email("mobile@example.com")
             .password(new BCryptPasswordEncoder().encode("test-password"))
-            .customerId(UUID.randomUUID()).role(Role.ADMIN).build();
+            .customerId(UUID.randomUUID()).role(new Role(RoleNames.ADMIN, true, true, true)).build();
 
     @Configuration
     @EnableWebMvc
@@ -182,11 +184,15 @@ class DualAuthenticationTest {
         assertThat(jwt.getSubject()).isEqualTo(USER.getUsername());
         assertThat(jwt.getAudience()).containsExactly("core-banking-api");
         assertThat(jwt.getClaimAsString("role")).isEqualTo("ROLE_ADMIN");
+        assertThat(jwt.getClaimAsStringList("permissions")).containsExactly("PERM_ADD", "PERM_EDIT", "PERM_DELETE");
         assertThat(jwt.getClaimAsString("customerId")).isEqualTo(USER.getCustomerId().toString());
         assertThat(jwt.getClaimAsStringList("scope")).contains("transactions.write");
         mvc.perform(get("/api/mobile/api/v1/auth/me")
                 .header("Authorization", "Bearer " + json.get("access_token").asText()))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles").value(org.hamcrest.Matchers.hasItem("ROLE_ADMIN")))
+                .andExpect(jsonPath("$.permissions").value(
+                        org.hamcrest.Matchers.containsInAnyOrder("PERM_ADD", "PERM_EDIT", "PERM_DELETE")));
         mvc.perform(post("/oauth2/token").param("grant_type", "authorization_code")
                 .param("client_id", "core-banking-mobile").param("code", code)
                 .param("redirect_uri", CALLBACK).param("code_verifier", VERIFIER))

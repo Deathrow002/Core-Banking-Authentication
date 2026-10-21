@@ -10,8 +10,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.authentication.config.AdminUserConfig;
-import com.authentication.models.Role;
+import com.authentication.models.RoleNames;
 import com.authentication.models.UserAuth;
+import com.authentication.repository.RoleRepository;
 import com.authentication.repository.UserAuthRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class AdminUserInitializer implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(AdminUserInitializer.class);
 
     private final UserAuthRepository userAuthRepository;
+    private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final AdminUserConfig adminUserConfig;
 
@@ -42,7 +44,8 @@ public class AdminUserInitializer implements CommandLineRunner {
                     .customerId(UUID.fromString("00000000-0000-0000-0000-000000000000")) // Or a predefined UUID for the admin
                     .email(adminEmail)
                     .password(passwordEncoder.encode(adminUserConfig.getPassword()))
-                    .role(Role.ADMIN)
+                    .role(roleRepository.findById(RoleNames.ADMIN)
+                            .orElseThrow(() -> new IllegalStateException("Role ADMIN is missing from the roles table")))
                     // Other fields like accountNonLocked, enabled etc. will use defaults from UserAuth model
                     .build();
             
