@@ -189,7 +189,7 @@ class UserManagementControllerTest {
         when(service.create(any(), any())).thenReturn(response(id, RoleNames.CUSTOMER));
 
         mvc.perform(post("/api/v1/auth/users").with(csrf())
-                        .with(authentication(SessionAuthentication.from(user(RoleNames.MANAGER))))
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.ADMIN))))
                         .contentType("application/json").content(validCreateJson()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(id.toString()))

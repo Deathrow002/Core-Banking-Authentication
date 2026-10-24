@@ -161,13 +161,23 @@ class AuthControllerSecurityTest {
     }
 
     @Test
-    void registerByManagerReturnsCreatedLoginWithoutPasswordHash() throws Exception {
+    void registerIsForbiddenForManagerEvenWithAddPermission() throws Exception {
+        mvc.perform(post("/api/v1/auth/register").with(csrf())
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.MANAGER))))
+                        .contentType("application/json").content(validRegisterJson()))
+                .andExpect(status().isForbidden());
+
+        org.mockito.Mockito.verifyNoInteractions(userRegisService);
+    }
+
+    @Test
+    void registerByAdminReturnsCreatedLoginWithoutPasswordHash() throws Exception {
         UUID customerId = UUID.randomUUID();
         when(userRegisService.registerUser(any())).thenReturn(UserAuth.builder()
                 .email("new@bank.com").password("$2a$10$hash").customerId(customerId).role(new Role(RoleNames.CUSTOMER)).build());
 
         mvc.perform(post("/api/v1/auth/register").with(csrf())
-                        .with(authentication(SessionAuthentication.from(user(RoleNames.MANAGER))))
+                        .with(authentication(SessionAuthentication.from(user(RoleNames.ADMIN))))
                         .contentType("application/json").content(validRegisterJson()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("new@bank.com"))

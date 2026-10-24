@@ -1,7 +1,7 @@
 # Core-Banking-Authentication
 
-Authentication microservice for the Core Banking system. Handles user registration, login and
-server-side sessions shared by all Core Banking services.
+Authentication microservice for the Core Banking system. Handles admin-created user accounts, login and
+server-side sessions shared by all Core Banking services. There is no public sign-up: only ADMIN users can create login accounts.
 
 ## Mobile OAuth/OIDC (Phase 1)
 
@@ -31,7 +31,7 @@ Public PKCE clients do **not** receive refresh tokens in this implementation. Re
 Mobile paths are `/api/mobile` followed by the original service path, for example `/api/mobile/accounts/getAccount`. These endpoints ignore browser session authentication, do not create sessions, validate the token signature/issuer/audience/expiry, and require the `banking` scope plus the original business role checks. Existing non-mobile paths continue to require sessions and CSRF; bearer tokens do not authenticate those paths.
 
 - `GET /api/mobile/api/v1/auth/me`: current mobile identity.
-- `POST /api/mobile/api/v1/auth/register` and `GET /api/mobile/api/v1/auth/getAllUsers`: reuse the existing controller and role checks; user listing still requires ADMIN.
+- `POST /api/mobile/api/v1/auth/register` and `GET /api/mobile/api/v1/auth/getAllUsers`: reuse the existing controller and role checks; account creation and user listing both require ADMIN.
 - `POST /api/mobile/api/v1/auth/logout`: deletes the matching OAuth authorization grant (204). Discard tokens in the app too. This does **not** immediately invalidate an already signed JWT in other resource servers: it can remain valid for its remaining five-minute lifetime, plus the validators' clock skew allowance. Browser sessions are independent; use OIDC browser logout if the system-browser login session must also end.
 
 **Phase 1 limitation:** mobile deposit, withdrawal, and transfer routes require both `banking` and `transactions.write`. Without them, requests return 403. With them, requests return 503 before business logic or persistence. They are intentionally not enabled by merely forwarding a user credential through Kafka. Existing web money workflows are unchanged.
@@ -113,17 +113,17 @@ OAuth request caching stores only a relative authorization URL, not servlet requ
 | POST | `/api/v1/auth/login` | Log in, create session | No (CSRF required) |
 | GET | `/api/v1/auth/me` | Current session user | Session |
 | POST | `/api/v1/auth/logout` | Invalidate session (204) | Session + CSRF |
-| POST | `/api/v1/auth/register` | Create a login for an existing customer; ADMIN or MANAGER with `PERM_ADD`; validates customer and password policy (8–72 chars) | Session (ADMIN/MANAGER + `PERM_ADD`) + CSRF |
+| POST | `/api/v1/auth/register` | Create a login for an existing customer; ADMIN only with `PERM_ADD`; validates customer and password policy (8–72 chars) | Session (ADMIN + `PERM_ADD`) + CSRF |
 | GET | `/api/v1/auth/getAllUsers` | List all users | ADMIN only |
 | GET | `/api/v1/auth/users?page=0&size=20` | Paged list of login accounts (`content`, `page`, `size`, `totalElements`, `totalPages`); size 1–100 | ADMIN or MANAGER |
 | GET | `/api/v1/auth/users/roles` | Role names from the `roles` table, sorted (e.g. `["ADMIN","CUSTOMER","MANAGER"]`) | ADMIN or MANAGER |
 | GET | `/api/v1/auth/users/{id}` | View one login account | ADMIN or MANAGER |
-| POST | `/api/v1/auth/users` | Create a login for an existing customer; role defaults to CUSTOMER | ADMIN or MANAGER with `PERM_ADD` + CSRF |
+| POST | `/api/v1/auth/users` | Create a login for an existing customer; role defaults to CUSTOMER | ADMIN with `PERM_ADD` + CSRF |
 | PUT | `/api/v1/auth/users/{id}` | Update email, password (optional), role, and enabled; `customerId` is immutable | ADMIN or MANAGER with `PERM_EDIT` + CSRF |
 | DELETE | `/api/v1/auth/users/{id}` | Permanently delete a login account (204) | ADMIN or MANAGER with `PERM_DELETE` + CSRF |
 
 Staff without the required permission get `403`. With the seeded permissions, MANAGER cannot delete logins.
-MANAGER cannot view, create, update, delete, or assign the ADMIN role; those requests return `403`. Users cannot delete, disable, or change the role of their own account (`400`), and the last enabled ADMIN cannot be removed or demoted (`400`).
+MANAGER cannot create any login account, including CUSTOMER accounts; those requests return `403` even when the MANAGER has `PERM_ADD`. The check runs in `UserManagementService` and `AuthController.register`, so it applies to every client, not just the Angular UI. MANAGER also cannot view, update, delete, or assign the ADMIN role; those requests return `403`. Users cannot delete, disable, or change the role of their own account (`400`), and the last enabled ADMIN cannot be removed or demoted (`400`).
 
 Unauthenticated requests receive `401` JSON; a missing/invalid CSRF token yields `403`.
 

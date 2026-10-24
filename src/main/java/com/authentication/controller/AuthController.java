@@ -65,8 +65,8 @@ public class AuthController {
         return ResponseEntity.ok(sessionAuthService.toResponse(authentication));
     }
 
-    /** Staff with the add permission: creates a login for an existing customer. Customer validation reuses the caller's session. */
-    @PreAuthorize("(hasRole('ADMIN') or hasRole('MANAGER')) and hasAuthority('PERM_ADD')")
+    /** ADMIN with the add permission: creates a login for an existing customer. Customer validation reuses the caller's session. */
+    @PreAuthorize("hasRole('ADMIN') and hasAuthority('PERM_ADD')")
     @PostMapping({"/api/v1/auth/register", "/api/mobile/api/v1/auth/register"})
     public ResponseEntity<?> register(@Valid @RequestBody UserRegisPayload user) {
         try {

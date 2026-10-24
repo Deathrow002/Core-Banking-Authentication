@@ -133,14 +133,26 @@ class UserManagementServiceTest {
     }
 
     @Test
-    void managerCannotCreateOrAssignAdminRole() {
+    void managerCannotCreateAnyAccount() {
         var manager = actorOf(account(RoleNames.MANAGER, true));
         var payload = UserCreatePayload.builder()
-                .customerId(UUID.randomUUID()).email("new@bank.com").password("longenough").role(RoleNames.ADMIN).build();
+                .customerId(UUID.randomUUID()).email("new@bank.com").password("longenough").role(RoleNames.CUSTOMER).build();
 
         assertRejected(() -> service.create(manager, payload), HttpStatus.FORBIDDEN);
 
         verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    void adminCanCreateAdminAccount() {
+        var admin = actorOf(account(RoleNames.ADMIN, true));
+        when(registrationService.createLogin(any(UserRegisPayload.class), eq(new Role(RoleNames.ADMIN))))
+                .thenReturn(account(RoleNames.ADMIN, true));
+
+        service.create(admin, UserCreatePayload.builder()
+                .customerId(UUID.randomUUID()).email("new@bank.com").password("longenough").role(RoleNames.ADMIN).build());
+
+        verify(registrationService).createLogin(any(UserRegisPayload.class), eq(new Role(RoleNames.ADMIN)));
     }
 
     @Test
@@ -160,7 +172,7 @@ class UserManagementServiceTest {
         var saved = account(RoleNames.CUSTOMER, true);
         when(registrationService.createLogin(any(UserRegisPayload.class), eq(new Role(RoleNames.CUSTOMER)))).thenReturn(saved);
 
-        var created = service.create(actorOf(account(RoleNames.MANAGER, true)), UserCreatePayload.builder()
+        var created = service.create(actorOf(account(RoleNames.ADMIN, true)), UserCreatePayload.builder()
                 .customerId(customerId).email("new@bank.com").password("longenough").build());
 
         ArgumentCaptor<UserRegisPayload> registration = ArgumentCaptor.forClass(UserRegisPayload.class);

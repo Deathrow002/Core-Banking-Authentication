@@ -67,8 +67,8 @@ public class UserManagementService {
     }
 
     public UserResponse create(Authentication actor, UserCreatePayload payload) {
+        requireAdmin(actor);
         Role role = roleService.require(StringUtils.hasText(payload.getRole()) ? payload.getRole() : RoleNames.CUSTOMER);
-        requireCanAssign(actor, role);
 
         UserRegisPayload registration = UserRegisPayload.builder()
                 .customerId(payload.getCustomerId())
@@ -171,6 +171,12 @@ public class UserManagementService {
     private void requireCanAssign(Authentication actor, Role role) {
         if (RoleNames.ADMIN.equals(role.getName()) && !isAdmin(actor)) {
             throw new UserManagementException(HttpStatus.FORBIDDEN, "Managers cannot assign the ADMIN role");
+        }
+    }
+
+    private void requireAdmin(Authentication actor) {
+        if (!isAdmin(actor)) {
+            throw new UserManagementException(HttpStatus.FORBIDDEN, "Only ADMIN can create accounts");
         }
     }
 
